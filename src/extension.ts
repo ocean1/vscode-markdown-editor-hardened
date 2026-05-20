@@ -7,14 +7,14 @@ function debug(...args: any[]) {
 }
 
 function showError(msg: string) {
-  vscode.window.showErrorMessage(`[markdown-editor] ${msg}`)
+  vscode.window.showErrorMessage(`[markdown-editor-hardened] ${msg}`)
 }
 
 export function activate(context: vscode.ExtensionContext) {
   // Register original command (used by context menu/shortcuts)
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      'markdown-editor.openEditor',
+      'markdown-editor-hardened.openEditor',
       (uri?: vscode.Uri, ...args) => {
         debug('command', uri, args)
         EditorPanel.createOrShow(context, uri)
@@ -48,7 +48,7 @@ class EditorPanel {
    */
   public static currentPanel: EditorPanel | undefined
 
-  public static readonly viewType = 'markdown-editor'
+  public static readonly viewType = 'markdown-editor-hardened'
 
   private _disposables: vscode.Disposable[] = []
 
@@ -96,7 +96,7 @@ class EditorPanel {
     // Otherwise, create a new panel.
     const panel = vscode.window.createWebviewPanel(
       EditorPanel.viewType,
-      'markdown-editor',
+      'markdown-editor-hardened',
       column || vscode.ViewColumn.One,
       EditorPanel.getWebviewOptions(uri)
     )
@@ -135,7 +135,7 @@ class EditorPanel {
   }
 
   static get config() {
-    return vscode.workspace.getConfiguration('markdown-editor')
+    return vscode.workspace.getConfiguration('markdown-editor-hardened')
   }
 
   private constructor(
@@ -398,7 +398,12 @@ class EditorPanel {
 
 				<title>markdown editor</title>
         <style>` +
-      EditorPanel.config.get<string>('customCss') +
+      // SECURITY (T0 defensive stub of DC2): customCss raw-HTML interpolation was an
+      // XSS vector (a hostile `.vscode/settings.json` could break out of the <style>
+      // tag with `</style><script>...`). The full DC2 redesign lands at C1.4 as a
+      // workspace-relative path setting; here we just zero out the read so T0 ships
+      // safe even before the redesign.
+      '' +
       `</style>
 			</head>
 			<body>
@@ -417,7 +422,7 @@ class EditorPanel {
  * Supports opening markdown files via "Open With"
  */
 class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
-  public static readonly viewType = 'markdown-editor.customEditor'
+  public static readonly viewType = 'markdown-editor-hardened.customEditor'
 
   constructor(private readonly context: vscode.ExtensionContext) { }
 
@@ -605,7 +610,12 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
 
 				<title>markdown editor</title>
         <style>` +
-      EditorPanel.config.get<string>('customCss') +
+      // SECURITY (T0 defensive stub of DC2): customCss raw-HTML interpolation was an
+      // XSS vector (a hostile `.vscode/settings.json` could break out of the <style>
+      // tag with `</style><script>...`). The full DC2 redesign lands at C1.4 as a
+      // workspace-relative path setting; here we just zero out the read so T0 ships
+      // safe even before the redesign.
+      '' +
       `</style>
 			</head>
 			<body>
