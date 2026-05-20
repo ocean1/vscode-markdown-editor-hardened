@@ -1,86 +1,54 @@
-# Markdown Editor — A full-featured WYSIWYG editor for markdown
+# Markdown Editor (Hardened)
 
-[![badge_title](https://vsmarketplacebadges.dev/version-short/zaaack.markdown-editor.svg)](https://marketplace.visualstudio.com/items?itemName=zaaack.markdown-editor) [![](https://vsmarketplacebadges.dev/installs-short/zaaack.markdown-editor.svg)](https://marketplace.visualstudio.com/items?itemName=zaaack.markdown-editor) [![](https://vsmarketplacebadges.dev/rating-short/zaaack.markdown-editor.svg)](https://marketplace.visualstudio.com/items?itemName=zaaack.markdown-editor)
+A security-hardened fork of [`zaaack/vscode-markdown-editor`](https://github.com/zaaack/vscode-markdown-editor) — a WYSIWYG markdown editor for VS Code powered by [vditor](https://github.com/Vanessa219/vditor).
 
-## Demo
+## What's different from upstream
 
-![demo](./demo.gif)
+This fork addresses 7 security issues identified in a code audit of upstream `0.1.13` / `0.1.14`. The hardening is rolling out across tiers:
 
-## Features
+- **T0** (current): repo identity, defensive stub for the `customCss` XSS vector (full redesign in T1).
+- **T1** (in progress): remove `enableCommandUris: true` (closes RCE via crafted markdown `command:` URIs), drop `customCss` raw-HTML injection, scope `localResourceRoots`, add Content-Security-Policy to the webview, validate `upload` filename against path traversal, allow-list `open-link` URL schemes, bump vditor `3.8.4` → `3.11.2`, bundle vditor's Lute markdown engine locally (drop `cdn.jsdelivr.net` runtime dependency), merge selected upstream PRs (#151 CI fix, #153 find widget, #154 auto-focus, #157 line numbers).
+- **T2**: drop `@testing-library` from webview bundle, full CI, `SECURITY.md` expansion, regression test suite.
+- **T3**: refactor — consolidate `EditorPanel` and `MarkdownEditorProvider` (currently ~250 LoC of duplicated message handling).
 
-1. What You See Is What You Get (WYSIWYG)
-2. Auto sync changes between the VSCode editor and webview
-3. Copy markdown/html
-4. Uploaded/pasted/drag-dropped images will be auto-saved to the `assets` folder
-5. Multi-theme support
-6. Shortcut keys
-7. Multiple editti[](https://)ng modes: instant Rendering mode (**Recommand!**) / WYSIWYG mode / split screen mode
-8. Markdown extensions
-9. Multiple graph support including KaTeX / Mermaid / Graphviz / ECharts / abc.js(notatioan) / ...
-10. For more usage please see [vditor](https://github.com/Vanessa219/vditor)
+See [`SECURITY.md`](SECURITY.md) for the threat model and per-issue status.
+
+## Upstream contribution
+
+Each independent hardening fix is sent back to upstream as a separate PR. The fork is not intended to permanently replace upstream — only to ship the fixes immediately while upstream considers them.
+
+Open upstream PRs from this fork (will populate as T1 lands):
+- TBD
 
 ## Install
 
-[https://marketplace.visualstudio.com/items?itemName=zaaack.markdown-editor](https://marketplace.visualstudio.com/items?itemName=zaaack.markdown-editor)
+This fork is not yet published to the VS Code Marketplace. To install locally:
 
-## Supported syntax
-
-[demo article](https://ld246.com/guide/markdown)
-
-## Usage
-
-### 1. Command mode in markdown file
-
-- open a markdown file
-- type `cmd-shift-p` to enter command mode
-- type `markdown-editor: Open with markdown editor`
-
-### 2. Key bindings
-
-- open a markdown file
-- type `ctrl+shift+alt+m` for win or `cmd+shift+alt+m` for mac
-
-### 3. Explorer Context menu
-
-- right click on markdown file
-- then click `Open with markdown editor`
-
-### 4. Editor title context menu
-
-- right click on a opened markdown file's tab title
-- then click `Open with markdown editor`
-
-### 5. Open With... and Set Default Editor
-
-- right click on a markdown file in Explorer
-- click `Open With...`
-- select `Markdown Editor` to open temporary
-- or click `Configure default editor...` and select `Markdown Editor` to set it as default
-
-### Custom CSS (custom layout and vditor personalization)
-
-Edit your settings.json and add
-
+```bash
+git clone https://github.com/ocean1/vscode-markdown-editor-hardened.git
+cd vscode-markdown-editor-hardened
+pnpm install                  # extension-host deps
+cd media-src && pnpm install  # webview deps
+cd .. && pnpm pub             # builds + packages .vsix
+code --install-extension markdown-editor-hardened-*.vsix
 ```
-"markdown-editor.customCss": "my custom css rules"
 
-// Eg: "markdown-editor.customCss": ".vditor-ir pre.vditor-reset {line-height: 32px;padding-right: calc(100% - 800px) !important; margin-left: 100px;    font-family: system-ui !important;}"
-```
+Note: at T0, the build outputs (`out/extension.js`, `media/dist/main.js`) are still upstream's — you need to rebuild after install. The bundled output will be regenerated in T1 (C1.13).
+
+## Migration from upstream
+
+If you were using `zaaack.markdown-editor`:
+
+- This fork uses a **different extension ID** (`ocean1.markdown-editor-hardened`). Both can be installed side-by-side. Uninstall upstream once you've confirmed the fork works for your use case.
+- **Settings do not migrate automatically.** The settings keys changed from `markdown-editor.*` to `markdown-editor-hardened.*`. The `markdown-editor.customCss` setting is preserved in this fork's manifest for migration honesty (so VS Code does not warn about an unknown setting), but its value is **ignored at runtime** — a hostile workspace's `customCss` cannot affect the fork. The full redesign of CSS customization (workspace-relative paths only, no inline HTML injection) lands in T1.
+- **Keybinding preserved**: `cmd+shift+alt+m` (Mac) / `ctrl+shift+alt+m` (others). Command name changed from `markdown-editor.openEditor` to `markdown-editor-hardened.openEditor` but the shortcut is the same.
 
 ## Acknowledgement
 
-- [vscode](https://github.com/microsoft/vscode)
-- [vditor](https://github.com/Vanessa219/vditor)
-
-
-## Todo
-
-- [ ] Using [Custom Text Editor](https://code.visualstudio.com/api/extension-guides/custom-editors#custom-text-editor) ([demo](https://github.com/gera2ld/markmap-vscode))
+- [zaaack](https://github.com/zaaack) — original author of `vscode-markdown-editor`
+- [Vanessa219](https://github.com/Vanessa219) — author of [vditor](https://github.com/Vanessa219/vditor)
+- contributors to upstream PRs we're merging: hackarada (#142), LeonardoRick (#153, #154), asalcedo29 (#157), mrsekut (#151)
 
 ## License
 
-MIT
-
-## Support
-
-If you like this extension make sure to star the repo. I am always looking for new ideas and feedback. In addition, it is possible to [donate via paypal](https://www.paypal.me/zaaack).
+MIT — same as upstream.
