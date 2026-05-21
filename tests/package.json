@@ -1,0 +1,14 @@
+{
+  "name": "markdown-editor-hardened-tests",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Regression tests + security PoCs for markdown-editor-hardened. Drives vditor/Lute and source-level properties directly; does not require installing the extension in VS Code.",
+  "scripts": {
+    "test": "node run-all.js",
+    "poc:h2": "node pocs/poc-h2-command-uri.js"
+  },
+  "dependencies": {
+    "jsdom": "^25.0.0",
+    "node-fetch": "^2.7.0"
+  }
+}

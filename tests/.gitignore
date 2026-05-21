@@ -1,0 +1,6 @@
+fixtures/*.js
+fixtures/*.wasm
+fixtures/*.min.js
+node_modules/
+package-lock.json
+yarn.lock
