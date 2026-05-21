@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import * as NodePath from 'path'
-import { validateWorkspaceRelativePath, validateUploadFilename } from './security/path-validation'
+import { validateWorkspaceRelativePath, validateUploadFilename, validateOpenLinkUrl } from './security/path-validation'
 const KeyVditorOptions = 'vditor.options'
 
 interface UploadEntry { base64: string; name: string }
@@ -437,11 +437,19 @@ class EditorPanel {
             break
           }
           case 'open-link': {
-            let url = message.href
-            if (!/^http/.test(url)) {
-              url = NodePath.resolve(this._fsPath, '..', url)
+            // SECURITY (DC6 / H5): validate scheme + workspace containment.
+            const wsRoots = (vscode.workspace.workspaceFolders ?? []).map(w => w.uri.fsPath)
+            const result = validateOpenLinkUrl(message.href, this._fsPath, wsRoots)
+            if (!result.ok) {
+              debug('open-link: rejected', { href: message.href, reason: result.reason })
+              break
             }
-            vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(url))
+            if (result.kind === 'file') {
+              vscode.commands.executeCommand('vscode.open', vscode.Uri.file(result.resolvedFsPath))
+            } else {
+              // http, https, mailto — pass the validated URL string through.
+              vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(result.url))
+            }
             break
           }
         }
@@ -725,11 +733,18 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
           break
         }
         case 'open-link': {
-          let url = message.href
-          if (!/^http/.test(url)) {
-            url = NodePath.resolve(uri.fsPath, '..', url)
+          // SECURITY (DC6 / H5): validate scheme + workspace containment.
+          const wsRoots = (vscode.workspace.workspaceFolders ?? []).map(w => w.uri.fsPath)
+          const result = validateOpenLinkUrl(message.href, uri.fsPath, wsRoots)
+          if (!result.ok) {
+            debug('open-link: rejected', { href: message.href, reason: result.reason })
+            break
           }
-          vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(url))
+          if (result.kind === 'file') {
+            vscode.commands.executeCommand('vscode.open', vscode.Uri.file(result.resolvedFsPath))
+          } else {
+            vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(result.url))
+          }
           break
         }
       }

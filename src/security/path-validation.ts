@@ -105,6 +105,141 @@ export function validateWorkspaceRelativePath(
 }
 
 /**
+ * Reasons an open-link URL can be rejected (sent from the webview's
+ * `open-link` message handler). The extension's glue maps `ok: true`
+ * kinds to the corresponding `vscode.commands.executeCommand('vscode.open', ...)`
+ * call; any rejection silently drops the click.
+ */
+export type OpenLinkReason =
+  | 'empty'
+  | 'not-string'
+  | 'scheme-not-allowed'
+  | 'malformed'
+  | 'file-outside-workspace'
+  | 'no-workspace-for-relative'
+
+export type OpenLinkResult =
+  | { ok: true; kind: 'http'; url: string }
+  | { ok: true; kind: 'mailto'; url: string }
+  | { ok: true; kind: 'file'; resolvedFsPath: string }
+  | { ok: false; reason: OpenLinkReason }
+
+/**
+ * Validate a webview-supplied `open-link.href` value.
+ *
+ * SECURITY (DC6 — closes H5, "OS-handler pivot via open-link with no scheme allowlist"):
+ *   Upstream's handler ran `vscode.commands.executeCommand('vscode.open', ...)`
+ *   on any URL the webview supplied. With no scheme allowlist, a compromised
+ *   webview (via H3 XSS chain, etc.) could pivot to:
+ *     - `command:` URIs (closed by C1.2's enableCommandUris removal, but
+ *       defense-in-depth at this layer is still valuable)
+ *     - `data:` URIs with HTML payload that the OS opens in browser
+ *     - custom protocol handlers registered on the user's machine
+ *     - `file:` URLs pointing to local executables — OS may launch
+ *
+ *   This validator enforces:
+ *     - empty/non-string → reject
+ *     - http/https → allow (OS browser handler, standard behavior)
+ *     - mailto → allow (OS email handler, standard behavior)
+ *     - file: → allow ONLY if the resolved path is inside one of the
+ *       workspace folders (the user already trusted the workspace)
+ *     - relative paths (no scheme) → treat as file-relative to the current
+ *       markdown file's directory, resolve, apply workspace-containment check
+ *     - any other scheme (data:, javascript:, command:, vscode:, ftp:, ...)
+ *       → reject
+ *
+ *   The current file's URI is used for two purposes:
+ *     - resolving relative paths (`./foo.md` → /Users/me/proj/foo.md)
+ *     - to find the workspace root for the workspace-containment check
+ *
+ * @param rawHref         the URL string the webview sent
+ * @param currentFileFsPath  absolute path of the markdown file the link
+ *                           appears in (for relative-path resolution)
+ * @param workspaceFolderFsPaths  absolute paths of workspace folders (one
+ *                                per VS Code workspace folder); the link
+ *                                target must be inside one of these for
+ *                                file: dispatch
+ */
+export function validateOpenLinkUrl(
+  rawHref: unknown,
+  currentFileFsPath: string,
+  workspaceFolderFsPaths: string[]
+): OpenLinkResult {
+  if (typeof rawHref !== 'string') return { ok: false, reason: 'not-string' }
+  const href = rawHref.trim()
+  if (href === '') return { ok: false, reason: 'empty' }
+
+  // Detect scheme. Use a manual prefix check rather than URL parsing
+  // because we want to handle relative paths (no scheme) uniformly.
+  const schemeMatch = href.match(/^([a-zA-Z][a-zA-Z0-9+.\-]*):/)
+  const scheme = schemeMatch ? schemeMatch[1].toLowerCase() : null
+
+  if (scheme === 'http' || scheme === 'https') {
+    // Validate URL structure.
+    try {
+      // Will throw on malformed URLs.
+      const u = new URL(href)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+        return { ok: false, reason: 'malformed' }
+      }
+      return { ok: true, kind: 'http', url: u.toString() }
+    } catch {
+      return { ok: false, reason: 'malformed' }
+    }
+  }
+
+  if (scheme === 'mailto') {
+    // mailto: is permissive; we just check it parses.
+    try {
+      const u = new URL(href)
+      if (u.protocol !== 'mailto:') return { ok: false, reason: 'malformed' }
+      return { ok: true, kind: 'mailto', url: u.toString() }
+    } catch {
+      return { ok: false, reason: 'malformed' }
+    }
+  }
+
+  if (scheme === 'file') {
+    // file:// URLs — must resolve inside a workspace folder.
+    let target: string
+    try {
+      const u = new URL(href)
+      target = decodeURIComponent(u.pathname)
+    } catch {
+      return { ok: false, reason: 'malformed' }
+    }
+    return checkFileTarget(target, workspaceFolderFsPaths)
+  }
+
+  if (scheme === null) {
+    // Relative path — resolve against the current file's directory, then
+    // apply workspace-containment check.
+    if (workspaceFolderFsPaths.length === 0) {
+      // No workspace open; we cannot validate. Fail closed.
+      return { ok: false, reason: 'no-workspace-for-relative' }
+    }
+    const target = NodePath.resolve(NodePath.dirname(currentFileFsPath), href)
+    return checkFileTarget(target, workspaceFolderFsPaths)
+  }
+
+  // Any other scheme — data:, javascript:, command:, vscode:, ftp:, ...
+  return { ok: false, reason: 'scheme-not-allowed' }
+}
+
+function checkFileTarget(
+  targetFsPath: string,
+  workspaceFolderFsPaths: string[]
+): OpenLinkResult {
+  for (const wsRoot of workspaceFolderFsPaths) {
+    const rel = NodePath.relative(wsRoot, targetFsPath)
+    if (rel !== '' && !rel.startsWith('..') && !NodePath.isAbsolute(rel)) {
+      return { ok: true, kind: 'file', resolvedFsPath: targetFsPath }
+    }
+  }
+  return { ok: false, reason: 'file-outside-workspace' }
+}
+
+/**
  * Validate a candidate upload filename — used by the `upload` message handler
  * in `src/extension.ts` (C1.7 — DC5 / H4).
  *
