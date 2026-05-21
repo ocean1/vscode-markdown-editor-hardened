@@ -85,6 +85,76 @@ function showError(msg: string) {
  *   webview just renders without the custom stylesheet (fail-closed).
  */
 /**
+ * Generate a cryptographically-strong base64 nonce for CSP script-tag
+ * gating. Each call returns a fresh ~32-byte random value, URL-safe
+ * base64-encoded (no padding).
+ */
+function generateNonce(): string {
+  const crypto = require('crypto') as typeof import('crypto')
+  return crypto.randomBytes(24).toString('base64')
+}
+
+/**
+ * Build the Content-Security-Policy meta tag content for the webview.
+ *
+ * SECURITY (DC4 — closes H6, "no CSP on webview HTML"):
+ *   Upstream emitted webview HTML with no CSP meta tag, so the only
+ *   webview-protection mechanism was VS Code's default sandbox. This
+ *   left several defense-in-depth gaps:
+ *     - any future XSS bug (via the H3 customCss chain, a vditor parse
+ *       bug, etc.) would have unfettered access to fetch+exfil
+ *     - inline-script injection via the H3 chain would have run
+ *       (closed by C1.4, but CSP would have stopped it pre-fix)
+ *     - data:/javascript: URI navigations via H5's open-link (closed
+ *       by C1.9, but CSP frame-src/navigate-to provides defense in depth)
+ *   With this CSP:
+ *     - default-src 'none' — DENY everything not explicitly allowlisted
+ *     - script-src 'nonce-X' cspSource https://cdn.jsdelivr.net
+ *       — nonce-gates our own script tag; cspSource for vditor's
+ *       internal scripts; jsdelivr will be REMOVED in C1.14 once
+ *       Lute is bundled locally
+ *     - style-src cspSource 'unsafe-inline' — vditor heavily injects
+ *       inline styles via DOM API; 'unsafe-inline' is the accepted
+ *       trade-off here (scratchpad I3 tracks the long-term plan to
+ *       tighten this)
+ *     - img-src cspSource https: data: — markdown image refs (https
+ *       remote, cspSource for workspace files, data: for vditor's
+ *       inline-SVG icons)
+ *     - font-src cspSource data: — vditor sometimes embeds fonts as
+ *       data: URIs
+ *     - media-src cspSource — <audio> tags emitted by media-src/main.ts
+ *       when a .wav is uploaded
+ *     - connect-src cspSource https://cdn.jsdelivr.net — vditor's
+ *       runtime asset loads (will tighten to cspSource only in C1.14)
+ *     - frame-src 'none' — no iframes
+ *     - object-src 'none' — no <object>/<embed>
+ *     - base-uri 'none' — defeats <base href> injection-rebase
+ *
+ * @param webview to read `webview.cspSource` (the webview's own origin)
+ * @param nonce   a fresh base64 nonce — same value must be used in the
+ *                `<script nonce="...">` attributes on our script tags
+ */
+function buildCspMeta(webview: vscode.Webview, nonce: string): string {
+  const cspSource = webview.cspSource
+  // NOTE (DC7 / C1.14): `https://cdn.jsdelivr.net` will be removed from
+  // both script-src and connect-src once Lute is bundled locally. Until
+  // then, vditor's runtime asset loader needs jsdelivr to be reachable.
+  const csp = [
+    `default-src 'none'`,
+    `script-src 'nonce-${nonce}' ${cspSource} https://cdn.jsdelivr.net`,
+    `style-src ${cspSource} 'unsafe-inline'`,
+    `img-src ${cspSource} https: data:`,
+    `font-src ${cspSource} data:`,
+    `media-src ${cspSource}`,
+    `connect-src ${cspSource} https://cdn.jsdelivr.net`,
+    `frame-src 'none'`,
+    `object-src 'none'`,
+    `base-uri 'none'`,
+  ].join('; ')
+  return `<meta http-equiv="Content-Security-Policy" content="${csp}">`
+}
+
+/**
  * Build the scoped `localResourceRoots` array for the webview.
  *
  * SECURITY (DC3 — closes H1, "over-broad localResourceRoots"):
@@ -556,11 +626,16 @@ class EditorPanel {
       ? `<link href="${customStylesheetUri}" rel="stylesheet">`
       : ''
 
+    // DC4: per-render CSP nonce. Each render gets a fresh nonce; only
+    // script tags carrying this exact value are allowed to execute.
+    const nonce = generateNonce()
+
     return (
       `<!DOCTYPE html>
 			<html lang="en">
 			<head>
 				<meta charset="UTF-8">
+				${buildCspMeta(webview, nonce)}
 
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
 				<base href="${baseHref}" />
@@ -575,7 +650,7 @@ class EditorPanel {
 				<div id="app"></div>
 
 
-				${JsFiles.map((f) => `<script src="${f}"></script>`).join('\n')}
+				${JsFiles.map((f) => `<script nonce="${nonce}" src="${f}"></script>`).join('\n')}
 			</body>
 			</html>`
     )
@@ -784,11 +859,15 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       ? `<link href="${customStylesheetUri}" rel="stylesheet">`
       : ''
 
+    // DC4: per-render CSP nonce. Same shape as EditorPanel._getHtmlForWebview.
+    const nonce = generateNonce()
+
     return (
       `<!DOCTYPE html>
 			<html lang="en">
 			<head>
 				<meta charset="UTF-8">
+				${buildCspMeta(webview, nonce)}
 
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
 				<base href="${baseHref}" />
@@ -803,7 +882,7 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
 				<div id="app"></div>
 
 
-				${JsFiles.map((f) => `<script src="${f}"></script>`).join('\n')}
+				${JsFiles.map((f) => `<script nonce="${nonce}" src="${f}"></script>`).join('\n')}
 			</body>
 			</html>`
     )
