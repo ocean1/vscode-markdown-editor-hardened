@@ -77,7 +77,7 @@ function initVditor(msg) {
             return {
               base64: await fileToBase64(f),
               name: `${format(new Date(), 'yyyyMMdd_HHmmss')}_${f.name}`.replace(
-                /[^\w-_.]+/,
+                /[^\w-_.]+/g,
                 '_'
               ),
             }
@@ -87,6 +87,9 @@ function initVditor(msg) {
           command: 'upload',
           files: fileInfos,
         })
+        // vditor 3.11+ upload.handler must return null on success (was
+        // implicit-undefined in 3.8.x). See PR #142 for the API change.
+        return null
       },
     },
   })
