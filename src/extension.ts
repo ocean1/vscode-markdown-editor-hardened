@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import * as NodePath from 'path'
+import { validateWorkspaceRelativePath } from './security/path-validation'
 const KeyVditorOptions = 'vditor.options'
 
 function debug(...args: any[]) {
@@ -38,34 +39,17 @@ function resolveCustomStylesheet(
   fileUri: vscode.Uri,
   configRaw: string | undefined
 ): string | null {
-  if (!configRaw || typeof configRaw !== 'string') return null
-  const setting = configRaw.trim()
-  if (setting === '') return null
-
-  // Reject URL-like values (any scheme + colon, or protocol-relative //...).
-  // This blocks data:, javascript:, https:, file:, ftp:, etc.
-  if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(setting) || setting.startsWith('//')) return null
-
-  // Reject absolute paths (POSIX `/` or Windows `C:\` / `C:/`)
-  if (NodePath.isAbsolute(setting) || /^[A-Za-z]:[\\/]/.test(setting)) return null
-
-  // Must be a .css file
-  if (!setting.toLowerCase().endsWith('.css')) return null
-
-  // Reject NUL bytes
-  if (setting.includes('\0')) return null
-
   const wsFolder = vscode.workspace.getWorkspaceFolder(fileUri)
   if (!wsFolder) return null
 
-  const wsRoot = wsFolder.uri.fsPath
-  const resolved = NodePath.resolve(wsRoot, setting)
+  const result = validateWorkspaceRelativePath(
+    configRaw,
+    wsFolder.uri.fsPath,
+    '.css'
+  )
+  if (!result.ok) return null
 
-  // Defeat `..` traversal — the resolved path must be strictly inside wsRoot.
-  const rel = NodePath.relative(wsRoot, resolved)
-  if (rel === '' || rel.startsWith('..') || NodePath.isAbsolute(rel)) return null
-
-  return webview.asWebviewUri(vscode.Uri.file(resolved)).toString()
+  return webview.asWebviewUri(vscode.Uri.file(result.resolved)).toString()
 }
 
 export function activate(context: vscode.ExtensionContext) {
