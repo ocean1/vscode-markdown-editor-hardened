@@ -1,57 +1,8 @@
 import * as vscode from 'vscode'
 import * as NodePath from 'path'
-import { validateWorkspaceRelativePath, validateUploadFilename, validateOpenLinkUrl } from './security/path-validation'
+import { validateWorkspaceRelativePath } from './security/path-validation'
+import { handleWebviewMessage, WebviewSession } from './webview/message-dispatcher'
 const KeyVditorOptions = 'vditor.options'
-
-interface UploadEntry { base64: string; name: string }
-
-/**
- * Validate an array of upload entries from the webview's `upload` message.
- *
- * SECURITY (DC5 — closes H4, "upload write-anywhere primitive"):
- *   The webview's `upload.handler` builds entries with `name` derived from
- *   pasted/dragged filenames, then sends them to the extension host. The
- *   extension previously wrote each one via
- *     fs.writeFile(NodePath.join(assetsFolder, f.name), content)
- *   `NodePath.join` does NOT reject `..`, absolute paths, or NUL bytes —
- *   so a compromised webview (via the upstream H3 XSS chain) could send
- *   `f.name = "../../../tmp/poc.txt"` and write outside the assets folder.
- *
- *   This helper filters the entries: each entry's `name` is run through
- *   `validateUploadFilename`. Valid entries are kept; invalid entries are
- *   set aside (caller can surface them or drop silently). Non-object
- *   entries and missing fields are also rejected.
- */
-function validateUploadEntries(
-  rawFiles: unknown
-): { valid: UploadEntry[]; rejected: { reason: string; raw: unknown }[] } {
-  const valid: UploadEntry[] = []
-  const rejected: { reason: string; raw: unknown }[] = []
-
-  if (!Array.isArray(rawFiles)) {
-    return { valid, rejected: [{ reason: 'files-not-array', raw: rawFiles }] }
-  }
-
-  for (const f of rawFiles) {
-    if (!f || typeof f !== 'object') {
-      rejected.push({ reason: 'entry-not-object', raw: f })
-      continue
-    }
-    const name = (f as any).name
-    const base64 = (f as any).base64
-    if (typeof base64 !== 'string') {
-      rejected.push({ reason: 'base64-not-string', raw: f })
-      continue
-    }
-    const nameCheck = validateUploadFilename(name)
-    if (!nameCheck.ok) {
-      rejected.push({ reason: `name-${nameCheck.reason}`, raw: f })
-      continue
-    }
-    valid.push({ name: nameCheck.name, base64 })
-  }
-  return { valid, rejected }
-}
 
 function debug(...args: any[]) {
   console.log(...args)
@@ -547,138 +498,23 @@ class EditorPanel {
         this._updateEditTitle()
       }, 300)
     }, this._disposables)
-    // Handle messages from the webview
+    // Handle messages from the webview — dispatched through the shared
+    // `handleWebviewMessage` (DC12). This class only provides the
+    // per-session bindings (panel, document, fileUri, context, callbacks);
+    // the command switch + per-message logic lives in
+    // src/webview/message-dispatcher.ts.
+    const session: WebviewSession = {
+      webview: this._panel.webview,
+      isActive: () => this._panel.active,
+      fileUri: this._uri,
+      document: this._document,
+      context: this._context,
+      postUpdate: (props) => this._update(props),
+      onEditApplied: () => this._updateEditTitle(),
+    }
     this._panel.webview.onDidReceiveMessage(
       async (message) => {
-        debug('msg from webview review', message, this._panel.active)
-
-        const syncToEditor = async () => {
-          debug('sync to editor', this._document, this._uri)
-          if (this._document) {
-            const edit = new vscode.WorkspaceEdit()
-            edit.replace(
-              this._document.uri,
-              new vscode.Range(0, 0, this._document.lineCount, 0),
-              message.content
-            )
-            await vscode.workspace.applyEdit(edit)
-          } else if (this._uri) {
-            await vscode.workspace.fs.writeFile(this._uri, message.content)
-          } else {
-            showError(`Cannot find original file to save!`)
-          }
-        }
-        switch (message.command) {
-          case 'ready': {
-            // PR #157 (asalcedo29) line-numbers feature: post the document's
-            // ORIGINAL source to the webview so the line-number gutter can
-            // map blocks back to source line numbers.
-            const md = this._document ? this._document.getText() : ''
-            this._panel.webview.postMessage({ command: '__setOrigContent', content: md })
-            this._update({
-              type: 'init',
-              options: {
-                useVscodeThemeColor: EditorPanel.config.get<boolean>(
-                  'useVscodeThemeColor'
-                ),
-                showLineNumbers: EditorPanel.config.get<boolean>(
-                  'showLineNumbers'
-                ),
-                ...this._context.globalState.get(KeyVditorOptions),
-              },
-              theme:
-                vscode.window.activeColorTheme.kind ===
-                  vscode.ColorThemeKind.Dark
-                  ? 'dark'
-                  : 'light',
-            })
-            break
-          }
-          case 'save-options':
-            this._context.globalState.update(KeyVditorOptions, message.options)
-            break
-          case 'info':
-            vscode.window.showInformationMessage(message.content)
-            break
-          case 'error':
-            showError(message.content)
-            break
-          case 'edit': {
-            // Only sync to VS Code editor when webview is in edit mode to avoid repeated refresh
-            if (this._panel.active) {
-              await syncToEditor()
-              this._updateEditTitle()
-            }
-            break
-          }
-          case 'reset-config': {
-            await this._context.globalState.update(KeyVditorOptions, {})
-            break
-          }
-          case 'save': {
-            await syncToEditor()
-            await this._document.save()
-            this._updateEditTitle()
-            break
-          }
-          case 'upload': {
-            // SECURITY (DC5 / H4): validate filenames BEFORE any fs write.
-            const { valid, rejected } = validateUploadEntries(message.files)
-            if (rejected.length > 0) {
-              debug('upload: rejected entries', rejected)
-              showError(
-                `Rejected ${rejected.length} upload entr${rejected.length === 1 ? 'y' : 'ies'} ` +
-                `(invalid filename or shape). Reasons: ${rejected.map(r => r.reason).join(', ')}`
-              )
-            }
-            if (valid.length === 0) break
-            const assetsFolder = EditorPanel.getAssetsFolder(this._uri)
-            try {
-              await vscode.workspace.fs.createDirectory(
-                vscode.Uri.file(assetsFolder)
-              )
-            } catch (error) {
-              console.error(error)
-              showError(`Invalid image folder: ${assetsFolder}`)
-            }
-            await Promise.all(
-              valid.map(async (f) => {
-                const content = Buffer.from(f.base64, 'base64')
-                return vscode.workspace.fs.writeFile(
-                  vscode.Uri.file(NodePath.join(assetsFolder, f.name)),
-                  content
-                )
-              })
-            )
-            const files = valid.map((f) =>
-              NodePath.relative(
-                NodePath.dirname(this._fsPath),
-                NodePath.join(assetsFolder, f.name)
-              ).replace(/\\/g, '/')
-            )
-            this._panel.webview.postMessage({
-              command: 'uploaded',
-              files,
-            })
-            break
-          }
-          case 'open-link': {
-            // SECURITY (DC6 / H5): validate scheme + workspace containment.
-            const wsRoots = (vscode.workspace.workspaceFolders ?? []).map(w => w.uri.fsPath)
-            const result = validateOpenLinkUrl(message.href, this._fsPath, wsRoots)
-            if (!result.ok) {
-              debug('open-link: rejected', { href: message.href, reason: result.reason })
-              break
-            }
-            if (result.kind === 'file') {
-              vscode.commands.executeCommand('vscode.open', vscode.Uri.file(result.resolvedFsPath))
-            } else {
-              // http, https, mailto — pass the validated URL string through.
-              vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(result.url))
-            }
-            break
-          }
-        }
+        await handleWebviewMessage(message, session)
       },
       null,
       this._disposables
@@ -891,115 +727,24 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       updateEditTitle()
     }, null, disposables)
 
-    // Handle messages from webview
-    webviewPanel.webview.onDidReceiveMessage(async (message) => {
-      debug('msg from webview', message, webviewPanel.active)
-
-      const syncToEditor = async () => {
-        const edit = new vscode.WorkspaceEdit()
-        edit.replace(
-          document.uri,
-          new vscode.Range(0, 0, document.lineCount, 0),
-          message.content
-        )
-        await vscode.workspace.applyEdit(edit)
-      }
-
-      switch (message.command) {
-        case 'ready': {
-          // PR #157 (asalcedo29) line-numbers feature: see EditorPanel
-          // ready handler for the rationale.
-          webviewPanel.webview.postMessage({
-            command: '__setOrigContent',
-            content: document.getText(),
-          })
-          updateWebview({
-            type: 'init',
-            options: {
-              useVscodeThemeColor: EditorPanel.config.get<boolean>('useVscodeThemeColor'),
-              showLineNumbers: EditorPanel.config.get<boolean>('showLineNumbers'),
-              ...this.context.globalState.get(KeyVditorOptions),
-            },
-            theme: vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'dark' : 'light',
-          })
-          break
-        }
-        case 'save-options':
-          this.context.globalState.update(KeyVditorOptions, message.options)
-          break
-        case 'info':
-          vscode.window.showInformationMessage(message.content)
-          break
-        case 'error':
-          showError(message.content)
-          break
-        case 'edit':
-          if (webviewPanel.active) {
-            await syncToEditor()
-            updateEditTitle()
-          }
-          break
-        case 'reset-config':
-          await this.context.globalState.update(KeyVditorOptions, {})
-          break
-        case 'save':
-          await syncToEditor()
-          await document.save()
-          updateEditTitle()
-          break
-        case 'upload': {
-          // SECURITY (DC5 / H4): validate filenames BEFORE any fs write.
-          const { valid, rejected } = validateUploadEntries(message.files)
-          if (rejected.length > 0) {
-            debug('upload: rejected entries', rejected)
-            showError(
-              `Rejected ${rejected.length} upload entr${rejected.length === 1 ? 'y' : 'ies'} ` +
-              `(invalid filename or shape). Reasons: ${rejected.map(r => r.reason).join(', ')}`
-            )
-          }
-          if (valid.length === 0) break
-          const assetsFolder = EditorPanel.getAssetsFolder(uri)
-          try {
-            await vscode.workspace.fs.createDirectory(vscode.Uri.file(assetsFolder))
-          } catch (error) {
-            console.error(error)
-            showError(`Invalid image folder: ${assetsFolder}`)
-          }
-          await Promise.all(
-            valid.map(async (f) => {
-              const content = Buffer.from(f.base64, 'base64')
-              return vscode.workspace.fs.writeFile(
-                vscode.Uri.file(NodePath.join(assetsFolder, f.name)),
-                content
-              )
-            })
-          )
-          const files = valid.map((f) =>
-            NodePath.relative(NodePath.dirname(uri.fsPath), NodePath.join(assetsFolder, f.name)).replace(/\\/g, '/')
-          )
-          webviewPanel.webview.postMessage({
-            command: 'uploaded',
-            files,
-          })
-          break
-        }
-        case 'open-link': {
-          // SECURITY (DC6 / H5): validate scheme + workspace containment.
-          const wsRoots = (vscode.workspace.workspaceFolders ?? []).map(w => w.uri.fsPath)
-          const result = validateOpenLinkUrl(message.href, uri.fsPath, wsRoots)
-          if (!result.ok) {
-            debug('open-link: rejected', { href: message.href, reason: result.reason })
-            break
-          }
-          if (result.kind === 'file') {
-            vscode.commands.executeCommand('vscode.open', vscode.Uri.file(result.resolvedFsPath))
-          } else {
-            vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(result.url))
-          }
-          break
-        }
-      }
-    }, null, disposables)
+    // Handle messages from webview — shared dispatcher (DC12). See
+    // src/webview/message-dispatcher.ts for the command switch.
+    const session: WebviewSession = {
+      webview: webviewPanel.webview,
+      isActive: () => webviewPanel.active,
+      fileUri: uri,
+      document,
+      context: this.context,
+      postUpdate: (props) => updateWebview(props ?? {}),
+      onEditApplied: updateEditTitle,
+    }
+    webviewPanel.webview.onDidReceiveMessage(
+      async (message) => {
+        await handleWebviewMessage(message, session)
+      },
+      null,
+      disposables
+    )
 
     // Clean up resources
     webviewPanel.onDidDispose(() => {

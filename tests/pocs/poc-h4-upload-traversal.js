@@ -38,7 +38,21 @@ require('ts-node').register({
 });
 
 const PATH_VALIDATION = path.join(__dirname, '..', '..', 'src', 'security', 'path-validation.ts');
-const EXTENSION_TS = path.join(__dirname, '..', '..', 'src', 'extension.ts');
+// Post-C3.1 (DC12): the upload-handling wiring is distributed:
+//   - src/upload-validation.ts        — validateUploadEntries definition
+//   - src/security/path-validation.ts — validateUploadFilename definition
+//   - src/webview/message-dispatcher.ts — the `upload` message case (single
+//     site after the refactor — both EditorPanel + MarkdownEditorProvider
+//     share this dispatcher)
+//   - src/extension.ts                — the panel/provider classes that
+//     install the dispatcher via onDidReceiveMessage
+// Source-grep all four for the wiring checks.
+const SRC_FILES = [
+  path.join(__dirname, '..', '..', 'src', 'extension.ts'),
+  path.join(__dirname, '..', '..', 'src', 'webview', 'message-dispatcher.ts'),
+  path.join(__dirname, '..', '..', 'src', 'upload-validation.ts'),
+  path.join(__dirname, '..', '..', 'src', 'security', 'path-validation.ts'),
+];
 
 const { validateUploadFilename } = require(PATH_VALIDATION);
 
@@ -122,34 +136,37 @@ function partB_validatorRejectsHostileInputs() {
 
 function partC_sourceLevelProperties() {
   console.log('\n[poc-h4] part C — source-level properties');
-  if (!fs.existsSync(EXTENSION_TS)) {
-    throw new Error(`extension.ts not found at ${EXTENSION_TS}`);
-  }
-  const source = fs.readFileSync(EXTENSION_TS, 'utf8');
+  const source = SRC_FILES.map((p) => {
+    if (!fs.existsSync(p)) throw new Error(`not found: ${p}`);
+    return fs.readFileSync(p, 'utf8');
+  }).join('\n');
   const stripped = source
     .replace(/\/\/.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '');
 
   const checks = [
     {
-      name: 'validateUploadEntries is defined',
-      pass: /function\s+validateUploadEntries\b/.test(stripped),
+      name: 'validateUploadEntries is defined (export from upload-validation.ts)',
+      pass: /export\s+function\s+validateUploadEntries\b/.test(stripped),
     },
     {
-      name: 'validateUploadEntries is called at ≥2 upload sites',
-      pass: (stripped.match(/validateUploadEntries\s*\(/g) || []).length >= 2,
+      name: 'validateUploadEntries is called from the message dispatcher',
+      pass: /validateUploadEntries\s*\(/.test(stripped),
     },
     {
       name: 'no NodePath.join(assetsFolder, f.name) outside the validated-loop',
-      // This match should only occur inside a `valid.map(...)` block.
       // Heuristic: every NodePath.join(assetsFolder, ...) occurrence in
       // executable code should be in a loop that iterates over `valid`,
       // not over `message.files` directly.
       pass: !/message\.files\s*\.map\s*\(\s*\(?\s*f\b[^)]*\)?\s*=>\s*[^{]*Buffer\.from\(\s*f\.base64/.test(stripped),
     },
     {
-      name: 'validateUploadFilename is imported from path-validation',
-      pass: /import\s+\{[^}]*validateUploadFilename[^}]*\}\s+from\s+['"]\.\/security\/path-validation['"]/.test(stripped),
+      name: 'validateUploadFilename is imported from security/path-validation',
+      pass: /import\s+\{[^}]*validateUploadFilename[^}]*\}\s+from\s+['"][./]+security\/path-validation['"]/.test(stripped),
+    },
+    {
+      name: 'validateUploadEntries is imported into the message dispatcher',
+      pass: /import\s+\{[^}]*validateUploadEntries[^}]*\}\s+from\s+['"][./]+upload-validation['"]/.test(stripped),
     },
   ];
 

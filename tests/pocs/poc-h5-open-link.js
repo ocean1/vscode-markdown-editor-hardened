@@ -46,7 +46,13 @@ require('ts-node').register({
 });
 
 const PATH_VALIDATION = path.join(__dirname, '..', '..', 'src', 'security', 'path-validation.ts');
-const EXTENSION_TS = path.join(__dirname, '..', '..', 'src', 'extension.ts');
+// Post-C3.1 (DC12): the open-link wiring lives in BOTH extension.ts (where
+// the panel/provider classes are) AND webview/message-dispatcher.ts
+// (where the message switch lives). Source-grep both.
+const SRC_FILES = [
+  path.join(__dirname, '..', '..', 'src', 'extension.ts'),
+  path.join(__dirname, '..', '..', 'src', 'webview', 'message-dispatcher.ts'),
+];
 
 const { validateOpenLinkUrl } = require(PATH_VALIDATION);
 
@@ -121,22 +127,22 @@ function partB_validatorBehavior() {
 
 function partC_sourceLevelProperties() {
   console.log('\n[poc-h5] part C — source-level properties');
-  if (!fs.existsSync(EXTENSION_TS)) {
-    throw new Error(`extension.ts not found at ${EXTENSION_TS}`);
-  }
-  const source = fs.readFileSync(EXTENSION_TS, 'utf8');
+  const source = SRC_FILES.map((p) => {
+    if (!fs.existsSync(p)) throw new Error(`not found: ${p}`);
+    return fs.readFileSync(p, 'utf8');
+  }).join('\n');
   const stripped = source
     .replace(/\/\/.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '');
 
   const checks = [
     {
-      name: 'validateOpenLinkUrl is imported from path-validation',
-      pass: /import\s+\{[^}]*validateOpenLinkUrl[^}]*\}\s+from\s+['"]\.\/security\/path-validation['"]/.test(stripped),
+      name: 'validateOpenLinkUrl is imported from security/path-validation',
+      pass: /import\s+\{[^}]*validateOpenLinkUrl[^}]*\}\s+from\s+['"][./]+security\/path-validation['"]/.test(stripped),
     },
     {
-      name: 'validateOpenLinkUrl is called at ≥2 open-link sites',
-      pass: (stripped.match(/validateOpenLinkUrl\s*\(/g) || []).length >= 2,
+      name: 'validateOpenLinkUrl is called from the message dispatcher',
+      pass: /validateOpenLinkUrl\s*\(/.test(stripped),
     },
     {
       name: 'no `!/^http/.test(url)` pattern (the upstream broken regex)',
