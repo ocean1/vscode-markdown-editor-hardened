@@ -1,7 +1,57 @@
 import * as vscode from 'vscode'
 import * as NodePath from 'path'
-import { validateWorkspaceRelativePath } from './security/path-validation'
+import { validateWorkspaceRelativePath, validateUploadFilename } from './security/path-validation'
 const KeyVditorOptions = 'vditor.options'
+
+interface UploadEntry { base64: string; name: string }
+
+/**
+ * Validate an array of upload entries from the webview's `upload` message.
+ *
+ * SECURITY (DC5 — closes H4, "upload write-anywhere primitive"):
+ *   The webview's `upload.handler` builds entries with `name` derived from
+ *   pasted/dragged filenames, then sends them to the extension host. The
+ *   extension previously wrote each one via
+ *     fs.writeFile(NodePath.join(assetsFolder, f.name), content)
+ *   `NodePath.join` does NOT reject `..`, absolute paths, or NUL bytes —
+ *   so a compromised webview (via the upstream H3 XSS chain) could send
+ *   `f.name = "../../../tmp/poc.txt"` and write outside the assets folder.
+ *
+ *   This helper filters the entries: each entry's `name` is run through
+ *   `validateUploadFilename`. Valid entries are kept; invalid entries are
+ *   set aside (caller can surface them or drop silently). Non-object
+ *   entries and missing fields are also rejected.
+ */
+function validateUploadEntries(
+  rawFiles: unknown
+): { valid: UploadEntry[]; rejected: { reason: string; raw: unknown }[] } {
+  const valid: UploadEntry[] = []
+  const rejected: { reason: string; raw: unknown }[] = []
+
+  if (!Array.isArray(rawFiles)) {
+    return { valid, rejected: [{ reason: 'files-not-array', raw: rawFiles }] }
+  }
+
+  for (const f of rawFiles) {
+    if (!f || typeof f !== 'object') {
+      rejected.push({ reason: 'entry-not-object', raw: f })
+      continue
+    }
+    const name = (f as any).name
+    const base64 = (f as any).base64
+    if (typeof base64 !== 'string') {
+      rejected.push({ reason: 'base64-not-string', raw: f })
+      continue
+    }
+    const nameCheck = validateUploadFilename(name)
+    if (!nameCheck.ok) {
+      rejected.push({ reason: `name-${nameCheck.reason}`, raw: f })
+      continue
+    }
+    valid.push({ name: nameCheck.name, base64 })
+  }
+  return { valid, rejected }
+}
 
 function debug(...args: any[]) {
   console.log(...args)
@@ -346,6 +396,16 @@ class EditorPanel {
             break
           }
           case 'upload': {
+            // SECURITY (DC5 / H4): validate filenames BEFORE any fs write.
+            const { valid, rejected } = validateUploadEntries(message.files)
+            if (rejected.length > 0) {
+              debug('upload: rejected entries', rejected)
+              showError(
+                `Rejected ${rejected.length} upload entr${rejected.length === 1 ? 'y' : 'ies'} ` +
+                `(invalid filename or shape). Reasons: ${rejected.map(r => r.reason).join(', ')}`
+              )
+            }
+            if (valid.length === 0) break
             const assetsFolder = EditorPanel.getAssetsFolder(this._uri)
             try {
               await vscode.workspace.fs.createDirectory(
@@ -356,7 +416,7 @@ class EditorPanel {
               showError(`Invalid image folder: ${assetsFolder}`)
             }
             await Promise.all(
-              message.files.map(async (f: any) => {
+              valid.map(async (f) => {
                 const content = Buffer.from(f.base64, 'base64')
                 return vscode.workspace.fs.writeFile(
                   vscode.Uri.file(NodePath.join(assetsFolder, f.name)),
@@ -364,7 +424,7 @@ class EditorPanel {
                 )
               })
             )
-            const files = message.files.map((f: any) =>
+            const files = valid.map((f) =>
               NodePath.relative(
                 NodePath.dirname(this._fsPath),
                 NodePath.join(assetsFolder, f.name)
@@ -629,6 +689,16 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
           updateEditTitle()
           break
         case 'upload': {
+          // SECURITY (DC5 / H4): validate filenames BEFORE any fs write.
+          const { valid, rejected } = validateUploadEntries(message.files)
+          if (rejected.length > 0) {
+            debug('upload: rejected entries', rejected)
+            showError(
+              `Rejected ${rejected.length} upload entr${rejected.length === 1 ? 'y' : 'ies'} ` +
+              `(invalid filename or shape). Reasons: ${rejected.map(r => r.reason).join(', ')}`
+            )
+          }
+          if (valid.length === 0) break
           const assetsFolder = EditorPanel.getAssetsFolder(uri)
           try {
             await vscode.workspace.fs.createDirectory(vscode.Uri.file(assetsFolder))
@@ -637,7 +707,7 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
             showError(`Invalid image folder: ${assetsFolder}`)
           }
           await Promise.all(
-            message.files.map(async (f: any) => {
+            valid.map(async (f) => {
               const content = Buffer.from(f.base64, 'base64')
               return vscode.workspace.fs.writeFile(
                 vscode.Uri.file(NodePath.join(assetsFolder, f.name)),
@@ -645,7 +715,7 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
               )
             })
           )
-          const files = message.files.map((f: any) =>
+          const files = valid.map((f) =>
             NodePath.relative(NodePath.dirname(uri.fsPath), NodePath.join(assetsFolder, f.name)).replace(/\\/g, '/')
           )
           webviewPanel.webview.postMessage({
