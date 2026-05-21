@@ -34,6 +34,48 @@ function showError(msg: string) {
  *   If the input fails ANY validation step, returns null silently — the
  *   webview just renders without the custom stylesheet (fail-closed).
  */
+/**
+ * Build the scoped `localResourceRoots` array for the webview.
+ *
+ * SECURITY (DC3 — closes H1, "over-broad localResourceRoots"):
+ *   Upstream set `localResourceRoots: [Uri.file("/"), Uri.file("A:/"), ...,
+ *   Uri.file("Z:/")]` — granting the webview read access to every file on
+ *   the system (or every drive on Windows). This was a defense-in-depth
+ *   weakness: if the webview JS were ever compromised (via a XSS chain,
+ *   compromised CDN, etc.), it could read arbitrary local files via the
+ *   webview's URI-mapping facility.
+ *
+ *   The redesign scopes the roots to what the extension actually needs:
+ *     - extensionUri      — to load the bundled webview JS/CSS
+ *     - workspace folders — to load images by workspace-relative path
+ *     - current file dir  — to load images by file-relative path
+ *
+ *   Images outside the workspace (e.g., a user dragging in an image from
+ *   /tmp) used to work via the `/` root. With this scope, they fail to
+ *   load — the user gets a broken-image icon. This is a small UX cost
+ *   for a meaningful defense-in-depth win. The full local-bundle of
+ *   vditor (DC7 / C1.14) keeps the extensionUri root sufficient for the
+ *   editor itself.
+ */
+function scopedLocalResourceRoots(
+  extensionUri: vscode.Uri,
+  fileUri?: vscode.Uri
+): vscode.Uri[] {
+  const roots: vscode.Uri[] = [extensionUri]
+  if (vscode.workspace.workspaceFolders) {
+    for (const wsFolder of vscode.workspace.workspaceFolders) {
+      roots.push(wsFolder.uri)
+    }
+  }
+  if (fileUri) {
+    // The file's containing directory. Useful when the file is not under
+    // any workspace folder (e.g. opened directly via Finder/Explorer).
+    const fileDir = vscode.Uri.file(NodePath.dirname(fileUri.fsPath))
+    roots.push(fileDir)
+  }
+  return roots
+}
+
 function resolveCustomStylesheet(
   webview: vscode.Webview,
   fileUri: vscode.Uri,
@@ -140,7 +182,7 @@ class EditorPanel {
       EditorPanel.viewType,
       'markdown-editor-hardened',
       column || vscode.ViewColumn.One,
-      EditorPanel.getWebviewOptions(uri)
+      EditorPanel.getWebviewOptions(extensionUri, uri ?? doc?.uri)
     )
 
     EditorPanel.currentPanel = new EditorPanel(
@@ -152,22 +194,20 @@ class EditorPanel {
     )
   }
 
-  private static getFolders(): vscode.Uri[] {
-    const data = []
-    for (let i = 65; i <= 90; i++) {
-      data.push(vscode.Uri.file(`${String.fromCharCode(i)}:/`))
-    }
-    return data
-  }
-
   static getWebviewOptions(
-    uri?: vscode.Uri
+    extensionUri: vscode.Uri,
+    fileUri?: vscode.Uri
   ): vscode.WebviewOptions & vscode.WebviewPanelOptions {
     return {
       // Enable javascript in the webview
       enableScripts: true,
 
-      localResourceRoots: [vscode.Uri.file("/"), ...this.getFolders()],
+      // SECURITY (DC3, closes H1 — over-broad localResourceRoots):
+      //   Scoped to extension dir + workspace folders + current file dir,
+      //   replacing upstream's `[Uri.file("/"), Uri.file("A:/")..Uri.file("Z:/")]`
+      //   which granted webview read access to the entire filesystem. See
+      //   `scopedLocalResourceRoots` doc for the full rationale.
+      localResourceRoots: scopedLocalResourceRoots(extensionUri, fileUri),
       retainContextWhenHidden: true,
       // SECURITY (DC1, closes H2 — RCE via crafted markdown command: URI):
       //   `enableCommandUris: true` was set in upstream; it allows any rendered
@@ -180,7 +220,6 @@ class EditorPanel {
       //   workbench.action.terminal.sendSequence with shell text).
       //   Default (option omitted) is `false` — clicks on command: URIs become
       //   inert. The link still renders in the DOM but cannot fire commands.
-      //   localResourceRoots scoping (DC3) lands in C1.6 and tightens further.
     }
   }
   private get _fsPath() {
@@ -493,7 +532,7 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     _token: vscode.CancellationToken
   ): Promise<void> {
     // Set webview options
-    webviewPanel.webview.options = this.getWebviewOptions()
+    webviewPanel.webview.options = this.getWebviewOptions(document.uri)
 
     // Init webview content
     const uri = document.uri
@@ -632,18 +671,13 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     })
   }
 
-  private static getFolders(): vscode.Uri[] {
-    const data = []
-    for (let i = 65; i <= 90; i++) {
-      data.push(vscode.Uri.file(`${String.fromCharCode(i)}:/`))
-    }
-    return data
-  }
-
-  private getWebviewOptions(): vscode.WebviewOptions {
+  private getWebviewOptions(fileUri?: vscode.Uri): vscode.WebviewOptions {
     return {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.file('/'), ...MarkdownEditorProvider.getFolders()],
+      // SECURITY (DC3, closes H1 — over-broad localResourceRoots):
+      //   See `scopedLocalResourceRoots` doc + EditorPanel.getWebviewOptions
+      //   for the rationale. Same scope policy as the command-mode panel.
+      localResourceRoots: scopedLocalResourceRoots(this.context.extensionUri, fileUri),
     }
   }
 
