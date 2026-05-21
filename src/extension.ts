@@ -334,6 +334,10 @@ class EditorPanel {
       //   `scopedLocalResourceRoots` doc for the full rationale.
       localResourceRoots: scopedLocalResourceRoots(extensionUri, fileUri),
       retainContextWhenHidden: true,
+      // Enables Cmd+F / Ctrl+F find widget in the webview panel (upstream
+      // PR #153 — credit LeonardoRick). VS Code's built-in find UI; no
+      // additional code needed beyond this flag.
+      enableFindWidget: true,
       // SECURITY (DC1, closes H2 — RCE via crafted markdown command: URI):
       //   `enableCommandUris: true` was set in upstream; it allows any rendered
       //   <a href="command:..."> in the webview to dispatch arbitrary VS Code
