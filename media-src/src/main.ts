@@ -72,6 +72,8 @@ function initVditor(msg) {
       handleToolbarClick()
       fixTableIr()
       fixPanelHover()
+      // Auto-focus on initial open (per upstream PR #154 — credit LeonardoRick).
+      vditor.focus()
     },
     input() {
       inputTimer && clearTimeout(inputTimer)
@@ -131,6 +133,11 @@ window.addEventListener('message', (e) => {
         vditor.setValue(msg.content)
         console.log('setValue')
       }
+      break
+    }
+    case 'focus': {
+      // Re-reveal focus (per upstream PR #154 — credit LeonardoRick).
+      vditor.focus()
       break
     }
     case 'uploaded': {

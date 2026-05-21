@@ -271,6 +271,10 @@ class EditorPanel {
     // If we already have a panel, show it.
     if (EditorPanel.currentPanel) {
       EditorPanel.currentPanel._panel.reveal(column)
+      // Per upstream PR #154 — credit LeonardoRick. Tell the webview to
+      // refocus on re-reveal so users don't have to click into the
+      // editor before typing.
+      EditorPanel.currentPanel._panel.webview.postMessage({ command: 'focus' })
       return
     }
     if (!vscode.window.activeTextEditor && !uri) {
