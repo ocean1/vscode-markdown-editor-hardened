@@ -1,4 +1,3 @@
-import { keyboard } from '@testing-library/user-event/dist/keyboard'
 import $ from 'jquery'
 require('jquery-confirm')(window, $)
 import 'jquery-confirm/css/jquery-confirm.css'

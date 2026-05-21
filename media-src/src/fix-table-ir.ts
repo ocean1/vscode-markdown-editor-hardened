@@ -1,7 +1,7 @@
 /**
  * ir 模式下支持 table 编辑
  */
-import { keyboard } from '@testing-library/user-event/dist/keyboard'
+import { sendKeySequence } from './keyboard'
 import $ from 'jquery'
 import { updateHotkeyTip } from 'vditor/src/ts/util/compatibility'
 
@@ -140,15 +140,11 @@ export function fixTableIr() {
             navigator.platform.toLowerCase().includes('mac') ? 1 : 0
           ]
         disableVscodeHotkeys = true
-        Promise.resolve(
-          keyboard(k, {
-            document: {
-              body: eventRoot,
-            } as any,
-          })
-        ).finally(() => {
+        try {
+          sendKeySequence(k, { target: eventRoot })
+        } finally {
           disableVscodeHotkeys = false
-        })
+        }
         e.stopPropagation()
       })
     }
