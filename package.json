@@ -88,6 +88,11 @@
           "default": true,
           "description": "Use vscode theme's background color as the markdown editor's background color."
         },
+        "markdown-editor-hardened.showLineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show line numbers in the left gutter of the markdown editor (maps to source-file line numbers, not rendered output lines). Adapted for CSP from upstream PR #157 — credit asalcedo29."
+        },
         "markdown-editor-hardened.customStylesheet": {
           "type": "string",
           "default": "",
