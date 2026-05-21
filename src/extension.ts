@@ -127,7 +127,18 @@ class EditorPanel {
 
       localResourceRoots: [vscode.Uri.file("/"), ...this.getFolders()],
       retainContextWhenHidden: true,
-      enableCommandUris: true,
+      // SECURITY (DC1, closes H2 — RCE via crafted markdown command: URI):
+      //   `enableCommandUris: true` was set in upstream; it allows any rendered
+      //   <a href="command:..."> in the webview to dispatch arbitrary VS Code
+      //   commands when clicked. Combined with the fact that vditor's markdown
+      //   sanitizer (Lute) does NOT strip `command:` URIs from rendered links
+      //   (verified by programmatic test in vditor 3.8.4 AND 3.11.2), opening a
+      //   crafted markdown file via this command-mode panel and clicking the
+      //   link executed arbitrary commands (e.g.,
+      //   workbench.action.terminal.sendSequence with shell text).
+      //   Default (option omitted) is `false` — clicks on command: URIs become
+      //   inert. The link still renders in the DOM but cannot fire commands.
+      //   localResourceRoots scoping (DC3) lands in C1.6 and tightens further.
     }
   }
   private get _fsPath() {
