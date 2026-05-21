@@ -15,10 +15,19 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Install
-        run: pnpm install; cd ./media-src; pnpm install
-      - name: Test
-        run: npm test
+      - name: Install root deps
+        run: pnpm install --frozen-lockfile
+      - name: Install media-src deps
+        working-directory: ./media-src
+        run: pnpm install --frozen-lockfile
+      - name: Install tests deps
+        working-directory: ./tests
+        run: pnpm install --frozen-lockfile
+      - name: Build webview bundle
+        working-directory: ./media-src
+        run: pnpm build
+      - name: Run security PoCs + integration smoke (publish gate)
+        run: pnpm test
       - name: Publish to Open VSX Registry
         uses: HaaLeo/publish-vscode-extension@v2
         id: publishToOpenVSX

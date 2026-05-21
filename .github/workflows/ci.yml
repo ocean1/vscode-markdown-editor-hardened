@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install root deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install media-src deps
+        working-directory: ./media-src
+        run: pnpm install --frozen-lockfile
+
+      - name: Install tests deps
+        working-directory: ./tests
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check (extension host)
+        run: pnpm exec tsc --noEmit -p ./
+
+      - name: Build webview bundle (esbuild + copy vditor assets)
+        working-directory: ./media-src
+        run: pnpm build
+
+      - name: Verify bundle exists
+        run: |
+          test -f media/dist/main.js
+          test -f media/dist/main.css
+          test -f media/vditor/dist/js/lute/lute.min.js
+
+      - name: Run security PoCs + integration smoke
+        run: pnpm test
