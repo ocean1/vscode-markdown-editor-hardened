@@ -44,11 +44,23 @@ function initVditor(msg) {
     vditor.destroy()
     window.vditor = null
   }
+  // DC7 / C1.14: read the locally-bundled vditor assets URL set by the
+  // host in the inline init script (`window.__vditorCdn`). Falls back to
+  // the empty string if unset — vditor would then default to jsdelivr,
+  // which is what we explicitly do NOT want. CSP also blocks jsdelivr
+  // post-C1.14, so a fallback to jsdelivr would just produce a load
+  // error, not a security regression. Logging the empty-string case so
+  // it surfaces during development.
+  const cdn = (window as any).__vditorCdn || ''
+  if (!cdn) {
+    console.warn('[markdown-editor-hardened] window.__vditorCdn unset; vditor will fail to load assets')
+  }
   window.vditor = new Vditor('app', {
     width: '100%',
     height: '100%',
     minHeight: '100%',
     lang,
+    cdn,
     value: msg.content,
     mode: 'ir',
     cache: { enable: false },

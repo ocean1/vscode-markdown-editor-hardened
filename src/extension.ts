@@ -107,12 +107,11 @@ function generateNonce(): string {
  *       (closed by C1.4, but CSP would have stopped it pre-fix)
  *     - data:/javascript: URI navigations via H5's open-link (closed
  *       by C1.9, but CSP frame-src/navigate-to provides defense in depth)
- *   With this CSP:
+ *   With this CSP (and after C1.14's local vditor bundle):
  *     - default-src 'none' — DENY everything not explicitly allowlisted
- *     - script-src 'nonce-X' cspSource https://cdn.jsdelivr.net
- *       — nonce-gates our own script tag; cspSource for vditor's
- *       internal scripts; jsdelivr will be REMOVED in C1.14 once
- *       Lute is bundled locally
+ *     - script-src 'nonce-X' cspSource — nonce-gates our own script tags;
+ *       cspSource for vditor's internally-loaded scripts (now served from
+ *       the local media/vditor/ directory, not jsdelivr)
  *     - style-src cspSource 'unsafe-inline' — vditor heavily injects
  *       inline styles via DOM API; 'unsafe-inline' is the accepted
  *       trade-off here (scratchpad I3 tracks the long-term plan to
@@ -124,8 +123,8 @@ function generateNonce(): string {
  *       data: URIs
  *     - media-src cspSource — <audio> tags emitted by media-src/main.ts
  *       when a .wav is uploaded
- *     - connect-src cspSource https://cdn.jsdelivr.net — vditor's
- *       runtime asset loads (will tighten to cspSource only in C1.14)
+ *     - connect-src cspSource — strict same-origin (no jsdelivr after
+ *       C1.14's local bundle)
  *     - frame-src 'none' — no iframes
  *     - object-src 'none' — no <object>/<embed>
  *     - base-uri 'none' — defeats <base href> injection-rebase
@@ -136,17 +135,19 @@ function generateNonce(): string {
  */
 function buildCspMeta(webview: vscode.Webview, nonce: string): string {
   const cspSource = webview.cspSource
-  // NOTE (DC7 / C1.14): `https://cdn.jsdelivr.net` will be removed from
-  // both script-src and connect-src once Lute is bundled locally. Until
-  // then, vditor's runtime asset loader needs jsdelivr to be reachable.
+  // After C1.14 (vditor bundled locally), the CSP is strictly same-origin
+  // (cspSource only). The previous allowlist for https://cdn.jsdelivr.net
+  // is GONE — vditor's runtime asset loader now reads from the local
+  // `media/vditor/` directory via the host-set `__vditorCdn` window
+  // global; no jsdelivr fetch fires at runtime.
   const csp = [
     `default-src 'none'`,
-    `script-src 'nonce-${nonce}' ${cspSource} https://cdn.jsdelivr.net`,
+    `script-src 'nonce-${nonce}' ${cspSource}`,
     `style-src ${cspSource} 'unsafe-inline'`,
     `img-src ${cspSource} https: data:`,
     `font-src ${cspSource} data:`,
     `media-src ${cspSource}`,
-    `connect-src ${cspSource} https://cdn.jsdelivr.net`,
+    `connect-src ${cspSource}`,
     `frame-src 'none'`,
     `object-src 'none'`,
     `base-uri 'none'`,
@@ -614,6 +615,17 @@ class EditorPanel {
     const JsFiles = ['main.js'].map(toMediaPath).map(toUri)
     const CssFiles = ['main.css'].map(toMediaPath).map(toUri)
 
+    // DC7 / C1.14: locally-bundled vditor assets URL. vditor's runtime
+    // loader builds asset URLs as `${cdn}/dist/js/lute/lute.min.js`,
+    // etc. — it appends `/dist/...` to whatever cdn value it's given.
+    // Our copy script (media-src/copy-vditor-assets.js) places the
+    // files at `media/vditor/dist/js/...` so vditor's pattern resolves
+    // cleanly with cdn set to the URL of `media/vditor`. The webview's
+    // entry script (main.ts) reads `window.__vditorCdn` (set by the
+    // nonced inline script below) and passes it as the Vditor
+    // constructor's `cdn` option.
+    const vditorCdnUri = toUri('media/vditor').toString()
+
     // DC2 redesign of the upstream `customCss` setting — see
     // `resolveCustomStylesheet` for the security rationale. Returns a
     // webview-safe URI string OR null. null = no extra stylesheet.
@@ -649,7 +661,7 @@ class EditorPanel {
 			<body>
 				<div id="app"></div>
 
-
+				<script nonce="${nonce}">window.__vditorCdn=${JSON.stringify(vditorCdnUri)};</script>
 				${JsFiles.map((f) => `<script nonce="${nonce}" src="${f}"></script>`).join('\n')}
 			</body>
 			</html>`
@@ -848,6 +860,17 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     const JsFiles = ['main.js'].map(toMediaPath).map(toUri)
     const CssFiles = ['main.css'].map(toMediaPath).map(toUri)
 
+    // DC7 / C1.14: locally-bundled vditor assets URL. vditor's runtime
+    // loader builds asset URLs as `${cdn}/dist/js/lute/lute.min.js`,
+    // etc. — it appends `/dist/...` to whatever cdn value it's given.
+    // Our copy script (media-src/copy-vditor-assets.js) places the
+    // files at `media/vditor/dist/js/...` so vditor's pattern resolves
+    // cleanly with cdn set to the URL of `media/vditor`. The webview's
+    // entry script (main.ts) reads `window.__vditorCdn` (set by the
+    // nonced inline script below) and passes it as the Vditor
+    // constructor's `cdn` option.
+    const vditorCdnUri = toUri('media/vditor').toString()
+
     // DC2 redesign of the upstream `customCss` setting — see
     // `resolveCustomStylesheet` for the security rationale.
     const customStylesheetUri = resolveCustomStylesheet(
@@ -881,7 +904,7 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
 			<body>
 				<div id="app"></div>
 
-
+				<script nonce="${nonce}">window.__vditorCdn=${JSON.stringify(vditorCdnUri)};</script>
 				${JsFiles.map((f) => `<script nonce="${nonce}" src="${f}"></script>`).join('\n')}
 			</body>
 			</html>`
