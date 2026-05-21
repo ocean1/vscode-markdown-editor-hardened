@@ -1,0 +1,38 @@
+{
+  "$comment": "Vditor compat lock — see media-src/check-vditor-compat.js for the semantics. When intentionally bumping vditor, update `expectedVersion` AND `expectedDistJsHash` AND retest.",
+  "expectedVersion": "3.11.2",
+  "expectedDistJsHash": "sha256:auto-on-first-run",
+  "$apiSurface": {
+    "$comment": "Vditor APIs the fork actually uses. Audited at C1.12 (vditor 3.11.2 bump). If any of these disappears in a future vditor release, the bundle won't build (TypeScript) AND the integration smoke fails. Listed here for grep-ability when reviewing future bumps.",
+    "constructor": "new Vditor('app', { lang, cdn, value, mode, cache, toolbar, toolbarConfig, ..., after, input, upload })",
+    "methods": [
+      "vditor.destroy()",
+      "vditor.setValue(content)",
+      "vditor.getValue()",
+      "vditor.getHTML()",
+      "vditor.insertValue(text)",
+      "vditor.setTheme(name)",
+      "vditor.getCurrentMode()",
+      "vditor.focus()"
+    ],
+    "internals_we_reach_into": [
+      "vditor.vditor.ir.element",
+      "vditor.vditor.options.theme",
+      "vditor.vditor.currentMode",
+      "vditor.vditor.options.preview",
+      "vditor.vditor.lute"
+    ],
+    "cdn_loader": {
+      "$comment": "vditor reads window.__vditorCdn (passed as `cdn` option) and builds asset URLs as ${cdn}/dist/js/lute/lute.min.js, ${cdn}/dist/js/i18n/<lang>.js, etc.",
+      "patterns": [
+        "${cdn}/dist/js/lute/lute.min.js",
+        "${cdn}/dist/js/i18n/<lang>.js",
+        "${cdn}/dist/js/icons/<file>.js",
+        "${cdn}/dist/js/mermaid/mermaid.min.js (lazy, only when needed)",
+        "${cdn}/dist/js/echarts/* (lazy)",
+        "${cdn}/dist/js/katex/* (lazy)",
+        "${cdn}/dist/js/mathjax/* (lazy)"
+      ]
+    }
+  }
+}
