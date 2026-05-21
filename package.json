@@ -88,10 +88,10 @@
           "default": true,
           "description": "Use vscode theme's background color as the markdown editor's background color."
         },
-        "markdown-editor-hardened.customCss": {
+        "markdown-editor-hardened.customStylesheet": {
           "type": "string",
           "default": "",
-          "description": "DEPRECATED in the hardened fork — this setting was removed in T1 because raw HTML injection through `<style>` interpolation is a known XSS vector. The setting is kept here at T0 for migration honesty (so VS Code does not warn 'unknown setting') but the value is IGNORED. Use `markdown-editor-hardened.customStylesheet` (workspace-relative .css path) for stylesheet customization once T1 lands."
+          "description": "Workspace-relative path to a .css file to load into the editor webview. Replaces upstream's `customCss` (which interpolated arbitrary HTML into a <style> block — XSS vector). Examples: `styles/editor.css`, `.vscode/markdown-editor.css`. The path must resolve to a file INSIDE the workspace, must end in `.css`, and cannot use absolute paths or URLs (data:, https://, etc. are all rejected). Empty = no custom stylesheet."
         }
       }
     },

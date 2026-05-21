@@ -10,6 +10,64 @@ function showError(msg: string) {
   vscode.window.showErrorMessage(`[markdown-editor-hardened] ${msg}`)
 }
 
+/**
+ * Resolve the user's `customStylesheet` setting to a webview-safe URI string,
+ * or null if the setting is unset/invalid.
+ *
+ * SECURITY (DC2 — closes H3, "customCss raw HTML injection"):
+ *   Upstream's `customCss` setting interpolated arbitrary HTML into a
+ *   <style> block in the webview, allowing a hostile `.vscode/settings.json`
+ *   to break out with `</style><script>...`. This redesign replaces that
+ *   string-of-CSS with a path-to-CSS:
+ *     - VALUE IS A PATH (filename), not HTML/CSS content;
+ *     - path must be workspace-relative (rejects absolute, traversal, URLs);
+ *     - file must end in `.css` (rejects `.html`, `.js`, etc.);
+ *     - emitted via <link rel="stylesheet">, not a content-interpolated
+ *       <style> block;
+ *     - the webview resolves the URL through `webview.asWebviewUri` so a
+ *       cross-origin URL is unreachable.
+ *   Combined with localResourceRoots scoping (DC3, C1.6) and CSP (DC4,
+ *   C1.10), this fully closes the H3 chain even if the stylesheet path
+ *   itself comes from a hostile workspace's settings.json.
+ *
+ *   If the input fails ANY validation step, returns null silently — the
+ *   webview just renders without the custom stylesheet (fail-closed).
+ */
+function resolveCustomStylesheet(
+  webview: vscode.Webview,
+  fileUri: vscode.Uri,
+  configRaw: string | undefined
+): string | null {
+  if (!configRaw || typeof configRaw !== 'string') return null
+  const setting = configRaw.trim()
+  if (setting === '') return null
+
+  // Reject URL-like values (any scheme + colon, or protocol-relative //...).
+  // This blocks data:, javascript:, https:, file:, ftp:, etc.
+  if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(setting) || setting.startsWith('//')) return null
+
+  // Reject absolute paths (POSIX `/` or Windows `C:\` / `C:/`)
+  if (NodePath.isAbsolute(setting) || /^[A-Za-z]:[\\/]/.test(setting)) return null
+
+  // Must be a .css file
+  if (!setting.toLowerCase().endsWith('.css')) return null
+
+  // Reject NUL bytes
+  if (setting.includes('\0')) return null
+
+  const wsFolder = vscode.workspace.getWorkspaceFolder(fileUri)
+  if (!wsFolder) return null
+
+  const wsRoot = wsFolder.uri.fsPath
+  const resolved = NodePath.resolve(wsRoot, setting)
+
+  // Defeat `..` traversal — the resolved path must be strictly inside wsRoot.
+  const rel = NodePath.relative(wsRoot, resolved)
+  if (rel === '' || rel.startsWith('..') || NodePath.isAbsolute(rel)) return null
+
+  return webview.asWebviewUri(vscode.Uri.file(resolved)).toString()
+}
+
 export function activate(context: vscode.ExtensionContext) {
   // Register original command (used by context menu/shortcuts)
   context.subscriptions.push(
@@ -395,6 +453,18 @@ class EditorPanel {
     const JsFiles = ['main.js'].map(toMediaPath).map(toUri)
     const CssFiles = ['main.css'].map(toMediaPath).map(toUri)
 
+    // DC2 redesign of the upstream `customCss` setting — see
+    // `resolveCustomStylesheet` for the security rationale. Returns a
+    // webview-safe URI string OR null. null = no extra stylesheet.
+    const customStylesheetUri = resolveCustomStylesheet(
+      webview,
+      this._uri,
+      EditorPanel.config.get<string>('customStylesheet')
+    )
+    const customStylesheetLink = customStylesheetUri
+      ? `<link href="${customStylesheetUri}" rel="stylesheet">`
+      : ''
+
     return (
       `<!DOCTYPE html>
 			<html lang="en">
@@ -406,16 +476,9 @@ class EditorPanel {
 
 
 				${CssFiles.map((f) => `<link href="${f}" rel="stylesheet">`).join('\n')}
+				${customStylesheetLink}
 
 				<title>markdown editor</title>
-        <style>` +
-      // SECURITY (T0 defensive stub of DC2): customCss raw-HTML interpolation was an
-      // XSS vector (a hostile `.vscode/settings.json` could break out of the <style>
-      // tag with `</style><script>...`). The full DC2 redesign lands at C1.4 as a
-      // workspace-relative path setting; here we just zero out the read so T0 ships
-      // safe even before the redesign.
-      '' +
-      `</style>
 			</head>
 			<body>
 				<div id="app"></div>
@@ -607,6 +670,17 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     const JsFiles = ['main.js'].map(toMediaPath).map(toUri)
     const CssFiles = ['main.css'].map(toMediaPath).map(toUri)
 
+    // DC2 redesign of the upstream `customCss` setting — see
+    // `resolveCustomStylesheet` for the security rationale.
+    const customStylesheetUri = resolveCustomStylesheet(
+      webview,
+      uri,
+      EditorPanel.config.get<string>('customStylesheet')
+    )
+    const customStylesheetLink = customStylesheetUri
+      ? `<link href="${customStylesheetUri}" rel="stylesheet">`
+      : ''
+
     return (
       `<!DOCTYPE html>
 			<html lang="en">
@@ -618,16 +692,9 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
 
 
 				${CssFiles.map((f) => `<link href="${f}" rel="stylesheet">`).join('\n')}
+				${customStylesheetLink}
 
 				<title>markdown editor</title>
-        <style>` +
-      // SECURITY (T0 defensive stub of DC2): customCss raw-HTML interpolation was an
-      // XSS vector (a hostile `.vscode/settings.json` could break out of the <style>
-      // tag with `</style><script>...`). The full DC2 redesign lands at C1.4 as a
-      // workspace-relative path setting; here we just zero out the read so T0 ships
-      // safe even before the redesign.
-      '' +
-      `</style>
 			</head>
 			<body>
 				<div id="app"></div>
