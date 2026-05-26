@@ -673,6 +673,12 @@ class EditorPanel {
 				<div id="app"></div>
 
 				<script nonce="${nonce}">window.__vditorCdn=${JSON.stringify(vditorCdnUri)};</script>
+				<!-- Pre-load vditor's icon set via a normal <script> tag so vditor's
+				     internal loader (which uses XHR — broken in VS Code webviews due
+				     to the webview-resource scheme not resolving via DNS) finds the
+				     existing element-id="vditorIconScript" and short-circuits.
+				     Without this, vditor's init aborts on ERR_NAME_NOT_RESOLVED. -->
+				<script nonce="${nonce}" id="vditorIconScript" src="${vditorCdnUri}/dist/js/icons/ant.js"></script>
 				${JsFiles.map((f) => `<script nonce="${nonce}" src="${f}"></script>`).join('\n')}
 				${EditorPanel.config.get<boolean>('showLineNumbers') !== false ? EditorPanel.lineNumberScript(nonce) : ''}
 			</body>
@@ -834,6 +840,12 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
 				<div id="app"></div>
 
 				<script nonce="${nonce}">window.__vditorCdn=${JSON.stringify(vditorCdnUri)};</script>
+				<!-- Pre-load vditor's icon set via a normal <script> tag so vditor's
+				     internal loader (which uses XHR — broken in VS Code webviews due
+				     to the webview-resource scheme not resolving via DNS) finds the
+				     existing element-id="vditorIconScript" and short-circuits.
+				     Without this, vditor's init aborts on ERR_NAME_NOT_RESOLVED. -->
+				<script nonce="${nonce}" id="vditorIconScript" src="${vditorCdnUri}/dist/js/icons/ant.js"></script>
 				${JsFiles.map((f) => `<script nonce="${nonce}" src="${f}"></script>`).join('\n')}
 				${EditorPanel.config.get<boolean>('showLineNumbers') !== false ? EditorPanel.lineNumberScript(nonce) : ''}
 			</body>
