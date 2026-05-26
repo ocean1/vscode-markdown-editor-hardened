@@ -30,20 +30,6 @@ function initVditor(msg) {
       }
     }
   })
-  // Apply theme from VS Code AFTER merge so it takes precedence over stored options
-  if (msg.theme === 'dark') {
-    defaultOptions.theme = 'dark'
-    defaultOptions.preview = defaultOptions.preview || {}
-    defaultOptions.preview.theme = { current: 'dark' }
-  } else if (msg.theme === 'light') {
-    defaultOptions.theme = 'classic'
-    defaultOptions.preview = defaultOptions.preview || {}
-    defaultOptions.preview.theme = { current: 'light' }
-  }
-  if (window.vditor) {
-    vditor.destroy()
-    window.vditor = null
-  }
   // DC7 / C1.14: read the locally-bundled vditor assets URL set by the
   // host in the inline init script (`window.__vditorCdn`). Falls back to
   // the empty string if unset — vditor would then default to jsdelivr,
@@ -54,6 +40,30 @@ function initVditor(msg) {
   const cdn = (window as any).__vditorCdn || ''
   if (!cdn) {
     console.warn('[markdown-editor-hardened] window.__vditorCdn unset; vditor will fail to load assets')
+  }
+  // vditor 3.11's content-theme (the rendered-markdown styling — headings,
+  // code blocks, tables, blockquotes) is loaded dynamically from
+  // `${preview.theme.path}/<current>.css`. Upstream set
+  // `preview.theme.current` without `path`, so vditor's loader fell back
+  // to its hardcoded default CDN path. With our local-bundle, that default
+  // doesn't resolve — the content-theme never loads, and the editor
+  // renders with vditor's fallback styles. Set `path` explicitly so it
+  // points at the local css/content-theme directory.
+  const contentThemePath = cdn ? `${cdn}/dist/css/content-theme` : ''
+
+  // Apply theme from VS Code AFTER merge so it takes precedence over stored options
+  if (msg.theme === 'dark') {
+    defaultOptions.theme = 'dark'
+    defaultOptions.preview = defaultOptions.preview || {}
+    defaultOptions.preview.theme = { current: 'dark', path: contentThemePath }
+  } else if (msg.theme === 'light') {
+    defaultOptions.theme = 'classic'
+    defaultOptions.preview = defaultOptions.preview || {}
+    defaultOptions.preview.theme = { current: 'light', path: contentThemePath }
+  }
+  if (window.vditor) {
+    vditor.destroy()
+    window.vditor = null
   }
   window.vditor = new Vditor('app', {
     width: '100%',

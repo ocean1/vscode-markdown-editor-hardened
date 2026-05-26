@@ -102,8 +102,8 @@ function partA_sourceProperties() {
       pass: /object-src\s+'none'/.test(stripped),
     },
     {
-      name: "CSP directive: base-uri 'none'",
-      pass: /base-uri\s+'none'/.test(stripped),
+      name: "CSP directive: base-uri 'self' (was 'none' initially; relaxed because 'none' blocked the webview's own <base href> tag, breaking vditor's content-theme CSS load chain)",
+      pass: /base-uri\s+'self'/.test(stripped),
     },
     {
       name: 'meta http-equiv="Content-Security-Policy" emitted',

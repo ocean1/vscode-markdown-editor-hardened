@@ -78,7 +78,17 @@ function generateNonce(): string {
  *       C1.14's local bundle)
  *     - frame-src 'none' — no iframes
  *     - object-src 'none' — no <object>/<embed>
- *     - base-uri 'none' — defeats <base href> injection-rebase
+ *     - base-uri 'self' — was 'none' initially, but that blocked our own
+ *       <base href> tag (used to anchor relative URLs to the markdown
+ *       file's dir). 'self' still prevents redirection of the base URI
+ *       to an external origin while permitting our own tag. Caught
+ *       during the in-VS-Code smoke test of C3.1 (console: "Setting the
+ *       document's base URI to ... violates the following Content
+ *       Security Policy directive: 'base-uri 'none''. The action has
+ *       been blocked."). Downstream effect of the bug was that
+ *       vditor's content-theme CSS files (loaded relative to baseHref)
+ *       didn't resolve, so the editor rendered with vditor's fallback
+ *       light styling even when the dark theme was requested.
  *
  * @param webview to read `webview.cspSource` (the webview's own origin)
  * @param nonce   a fresh base64 nonce — same value must be used in the
@@ -101,7 +111,7 @@ function buildCspMeta(webview: vscode.Webview, nonce: string): string {
     `connect-src ${cspSource}`,
     `frame-src 'none'`,
     `object-src 'none'`,
-    `base-uri 'none'`,
+    `base-uri 'self'`,
   ].join('; ')
   return `<meta http-equiv="Content-Security-Policy" content="${csp}">`
 }
