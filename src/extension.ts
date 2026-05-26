@@ -624,7 +624,7 @@ class EditorPanel {
       ) + '/'
     const toMediaPath = (f: string) => `media/dist/${f}`
     const JsFiles = ['main.js'].map(toMediaPath).map(toUri)
-    const CssFiles = ['main.css'].map(toMediaPath).map(toUri)
+    const CssFiles = ['main.css', 'vscode-theme-bridge.css'].map(toMediaPath).map(toUri)
 
     // DC7 / C1.14: locally-bundled vditor assets URL. vditor's runtime
     // loader builds asset URLs as `${cdn}/dist/js/lute/lute.min.js`,
@@ -793,7 +793,7 @@ class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     const baseHref = NodePath.dirname(webview.asWebviewUri(vscode.Uri.file(uri.fsPath)).toString()) + '/'
     const toMediaPath = (f: string) => `media/dist/${f}`
     const JsFiles = ['main.js'].map(toMediaPath).map(toUri)
-    const CssFiles = ['main.css'].map(toMediaPath).map(toUri)
+    const CssFiles = ['main.css', 'vscode-theme-bridge.css'].map(toMediaPath).map(toUri)
 
     // DC7 / C1.14: locally-bundled vditor assets URL. vditor's runtime
     // loader builds asset URLs as `${cdn}/dist/js/lute/lute.min.js`,
