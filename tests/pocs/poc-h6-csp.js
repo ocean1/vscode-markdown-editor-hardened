@@ -94,16 +94,12 @@ function partA_sourceProperties() {
       pass: /script-src[^,;]*'nonce-\$\{nonce\}'/.test(stripped),
     },
     {
-      name: "CSP directive: frame-src 'none'",
-      pass: /frame-src\s+'none'/.test(stripped),
+      name: "CSP: connect-src is same-origin only (no jsdelivr after C1.14)",
+      pass: /connect-src\s+\$\{cspSource\}/.test(stripped) && !/connect-src[^,;]*jsdelivr/.test(stripped),
     },
     {
-      name: "CSP directive: object-src 'none'",
-      pass: /object-src\s+'none'/.test(stripped),
-    },
-    {
-      name: "CSP directive: base-uri 'self' (was 'none' initially; relaxed because 'none' blocked the webview's own <base href> tag, breaking vditor's content-theme CSS load chain)",
-      pass: /base-uri\s+'self'/.test(stripped),
+      name: "CSP: NO frame-src/object-src/base-uri directives (would block VS Code's webview wrapper — see C3.3 in-VS-Code smoke test)",
+      pass: !/['"]frame-src\s+'none'['"]/.test(stripped) && !/['"]object-src\s+'none'['"]/.test(stripped) && !/['"]base-uri[^'"]*['"]/.test(stripped),
     },
     {
       name: 'meta http-equiv="Content-Security-Policy" emitted',

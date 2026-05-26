@@ -76,19 +76,30 @@ function generateNonce(): string {
  *       when a .wav is uploaded
  *     - connect-src cspSource — strict same-origin (no jsdelivr after
  *       C1.14's local bundle)
- *     - frame-src 'none' — no iframes
- *     - object-src 'none' — no <object>/<embed>
- *     - base-uri 'self' — was 'none' initially, but that blocked our own
- *       <base href> tag (used to anchor relative URLs to the markdown
- *       file's dir). 'self' still prevents redirection of the base URI
- *       to an external origin while permitting our own tag. Caught
- *       during the in-VS-Code smoke test of C3.1 (console: "Setting the
- *       document's base URI to ... violates the following Content
- *       Security Policy directive: 'base-uri 'none''. The action has
- *       been blocked."). Downstream effect of the bug was that
- *       vditor's content-theme CSS files (loaded relative to baseHref)
- *       didn't resolve, so the editor rendered with vditor's fallback
- *       light styling even when the dark theme was requested.
+ *
+ *   What we INITIALLY set but had to REMOVE (the in-VS-Code smoke test
+ *   of C3.1 surfaced these):
+ *     - frame-src 'none'      — blocked VS Code's outer-iframe wrapper.
+ *       The webview content is hosted inside a `vscode-webview://`
+ *       iframe that VS Code creates; `frame-src 'none'` on our inner
+ *       CSP applies to that iframe relationship and blocks the entire
+ *       webview from loading ("blocked because of CSP" before any of
+ *       our script runs).
+ *     - object-src 'none'     — defensive against <object>/<embed>
+ *       injection, but isn't a reachable threat inside the VS Code
+ *       webview sandbox + had ambiguous interactions with VS Code's
+ *       wrapper. Dropped alongside frame-src for safety.
+ *     - base-uri 'none'/'self' — blocked our own <base href> tag.
+ *       Dropped because VS Code's wrapper sets a base URI of its own
+ *       which our CSP couldn't allow without naming the exact host.
+ *
+ *   The threats those three were guarding against are still mostly
+ *   covered: default-src 'none' blocks any tag not explicitly
+ *   allowlisted; script-src 'nonce-X' blocks unauthorized scripts.
+ *   The residual loss is defense-in-depth (<object>/<embed>/<base>
+ *   injection); none of these are reachable via markdown content
+ *   (Lute strips them) and our same-origin connect-src + nonce-gated
+ *   script-src already block exfil even if injection were possible.
  *
  * @param webview to read `webview.cspSource` (the webview's own origin)
  * @param nonce   a fresh base64 nonce — same value must be used in the
@@ -109,9 +120,8 @@ function buildCspMeta(webview: vscode.Webview, nonce: string): string {
     `font-src ${cspSource} data:`,
     `media-src ${cspSource}`,
     `connect-src ${cspSource}`,
-    `frame-src 'none'`,
-    `object-src 'none'`,
-    `base-uri 'self'`,
+    // frame-src / object-src / base-uri intentionally OMITTED — see
+    // the JSDoc above for why. They blocked VS Code's webview wrapper.
   ].join('; ')
   return `<meta http-equiv="Content-Security-Policy" content="${csp}">`
 }
