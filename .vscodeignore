@@ -3,6 +3,7 @@
 media-src
 node_modules
 src
+tests
 .gitignore
 tsconfig.json
 webpack.config.js
@@ -10,3 +11,14 @@ esbuild.js
 Foyfile.ts
 yarn.lock
 yarn-error.log
+pnpm-lock.yaml
+.scratchpad.md
+CHANGELOG.md
+SECURITY.md
+upstream-original
+.vscodeignore
+**/*.ts
+**/*.map
+**/.gitignore
+**/pnpm-lock.yaml
+out/**/*.d.ts
