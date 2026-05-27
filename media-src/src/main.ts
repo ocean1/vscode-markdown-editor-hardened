@@ -87,17 +87,22 @@ function initVditor(msg) {
     lang,
     cdn,
     value: msg.content,
-    // C3.8: default to WYSIWYG mode (single view; renders code blocks
-    // with full chrome; built-in language selector dropdown shows above
-    // each code block). Previously 'ir' (Instant Rendering) which is
-    // a dual-pane source+preview while editing — usable but visually
-    // noisy. Users can still toggle modes via the toolbar's mode menu
-    // ("more" → "edit-mode") at any time.
-    mode: 'wysiwyg',
     cache: { enable: false },
     toolbar,
     toolbarConfig: { pin: true },
+    // The spread happens BEFORE the explicit mode default below so
+    // the user's saved mode preference (in defaultOptions.mode, came
+    // from msg.options.mode via the merge at line ~32) takes
+    // priority. If they HAVE no saved preference, the `||` below
+    // falls through to our 'wysiwyg' default.
     ...defaultOptions,
+    // C3.8/C3.9: default to WYSIWYG mode when the user has no saved
+    // preference. (Previously 'ir' — Instant Rendering — which is a
+    // dual-pane source+preview while editing; visually noisy.) Users
+    // can still toggle to 'ir' or 'sv' via the toolbar's mode menu
+    // ("More" → "Edit Mode"); that choice gets saved via saveVditorOptions
+    // and rehydrated on the next open through `...defaultOptions` above.
+    mode: defaultOptions.mode || 'wysiwyg',
     after() {
       fixDarkTheme()
       handleToolbarClick()
