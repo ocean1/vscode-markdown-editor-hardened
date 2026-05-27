@@ -52,14 +52,23 @@ function initVditor(msg) {
   const contentThemePath = cdn ? `${cdn}/dist/css/content-theme` : ''
 
   // Apply theme from VS Code AFTER merge so it takes precedence over stored options
+  //
+  // hljs.style picks the syntax-highlighting palette for fenced code blocks.
+  // Default upstream is "github" (light) which clashes with dark VS Code
+  // themes. We pin to vs2015 (dark) / vs (light) — the closest matches to
+  // VS Code's actual syntax token colors.
   if (msg.theme === 'dark') {
     defaultOptions.theme = 'dark'
     defaultOptions.preview = defaultOptions.preview || {}
     defaultOptions.preview.theme = { current: 'dark', path: contentThemePath }
+    defaultOptions.preview.hljs = defaultOptions.preview.hljs || {}
+    defaultOptions.preview.hljs.style = 'vs2015'
   } else if (msg.theme === 'light') {
     defaultOptions.theme = 'classic'
     defaultOptions.preview = defaultOptions.preview || {}
     defaultOptions.preview.theme = { current: 'light', path: contentThemePath }
+    defaultOptions.preview.hljs = defaultOptions.preview.hljs || {}
+    defaultOptions.preview.hljs.style = 'vs'
   }
   if (window.vditor) {
     vditor.destroy()
