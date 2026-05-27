@@ -18,6 +18,12 @@ import { t, lang } from './lang'
 import { toolbar } from './toolbar'
 import { fixTableIr } from './fix-table-ir'
 import './main.css'
+// C3.5/C3.6/C3.7: vscode-theme-bridge.css maps vditor's selectors to
+// VS Code's --vscode-* CSS variables so the editor aligns with the
+// user's active theme. Imported AFTER main.css so its rules win on
+// tied specificity (the !important flags inside also force it over
+// vditor's dynamically-loaded content-theme).
+import './vscode-theme-bridge.css'
 
 function initVditor(msg) {
   console.log('msg', msg)
