@@ -87,7 +87,13 @@ function initVditor(msg) {
     lang,
     cdn,
     value: msg.content,
-    mode: 'ir',
+    // C3.8: default to WYSIWYG mode (single view; renders code blocks
+    // with full chrome; built-in language selector dropdown shows above
+    // each code block). Previously 'ir' (Instant Rendering) which is
+    // a dual-pane source+preview while editing — usable but visually
+    // noisy. Users can still toggle modes via the toolbar's mode menu
+    // ("more" → "edit-mode") at any time.
+    mode: 'wysiwyg',
     cache: { enable: false },
     toolbar,
     toolbarConfig: { pin: true },

@@ -46,9 +46,12 @@ body,
   font-family: var(--vscode-editor-font-family, 'Menlo', 'Monaco', monospace);
 }
 
-/* The IR mode's main content area. Doesn't inherit cleanly from .vditor-reset
- * because vditor scopes some background-color rules on it directly. */
-.vditor-ir {
+/* Main content area for all three vditor modes (IR, WYSIWYG, SV).
+ * Doesn't inherit cleanly from .vditor-reset because vditor scopes
+ * some background-color rules on these directly. */
+.vditor-ir,
+.vditor-wysiwyg,
+.vditor-sv {
   background-color: var(--vscode-editor-background, #1e1e1e) !important;
   color: var(--vscode-editor-foreground, #d4d4d4) !important;
 }
@@ -243,7 +246,9 @@ body,
  * ============================================================ */
 
 .vditor-reset ::selection,
-.vditor-ir ::selection {
+.vditor-ir ::selection,
+.vditor-wysiwyg ::selection,
+.vditor-sv ::selection {
   background-color: var(--vscode-editor-selectionBackground, rgba(58, 109, 154, 0.6)) !important;
   color: var(--vscode-editor-selectionForeground, inherit) !important;
 }

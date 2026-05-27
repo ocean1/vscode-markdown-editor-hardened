@@ -18,6 +18,10 @@ const tablePanelId = 'fix-table-ir-wrapper'
 let disableVscodeHotkeys = false
 
 export function fixTableIr() {
+  // IR-only feature: bail in WYSIWYG / SV modes where vditor.vditor.ir
+  // is undefined. The table-hotkey UX comes from vditor itself in
+  // those modes; this fixup only existed for IR mode.
+  if (!vditor.vditor.ir || !vditor.vditor.ir.element) return
   const eventRoot = vditor.vditor.ir.element
 
   function insertTablePanel() {
